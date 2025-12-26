@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>顔認識出退勤管理システム</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Face-api.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body>
+  <div class="scan-line"></div>
+  <div class="container">
+    <header>
+      <h1>顔認識出退勤システム</h1>
+      <p class="subtitle">AI FACE RECOGNITION INTERFACE // TYPE-SILVER</p>
+    </header>
+
+    <!-- ローディング表示 -->
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>システム初期化中...</p>
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div id="mainContent" style="display: none;">
+      
+      <!-- ユーザー登録セクション -->
+      <section class="card registration-section">
+        <div class="card-header">
+          <h2>新規ユーザー登録</h2>
+        </div>
+        <div class="card-body">
+          <p class="info-text">IDと顔データをデータベースに登録します</p>
+          <div class="input-group">
+            <input type="text" id="userName" placeholder="名前を入力..." />
+            <button id="registerBtn" class="btn btn-secondary">
+              登録実行
+            </button>
+          </div>
+          <div id="registerMessage" class="message"></div>
+        </div>
+      </section>
+
+      <!-- カメラセクション -->
+      <section class="card camera-section">
+        <div class="card-header">
+          <h2>映像入力モニター</h2>
+        </div>
+        <div class="card-body">
+          <div class="video-wrapper">
+            <div class="video-container">
+              <video id="video" autoplay muted playsinline></video>
+              <canvas id="overlay"></canvas>
+              <!-- 装飾的なコーナーブラケット -->
+              <div class="corner-bracket top-left"></div>
+              <div class="corner-bracket top-right"></div>
+              <div class="corner-bracket bottom-left"></div>
+              <div class="corner-bracket bottom-right"></div>
+            </div>
+            <div id="detectionStatus" class="detection-status">
+              <span class="status-indicator"></span>
+              <span id="statusText">スキャン中...</span>
+            </div>
+          </div>
+          
+          <div class="button-group">
+            <button id="clockInBtn" class="btn btn-primary btn-large" disabled>
+              出勤記録
+            </button>
+            <button id="clockOutBtn" class="btn btn-danger btn-large" disabled>
+              退勤記録
+            </button>
+          </div>
+          
+          <div id="actionMessage" class="message"></div>
+        </div>
+      </section>
+
+      <div class="grid-layout">
+        <!-- 登録ユーザー一覧 -->
+        <section class="card">
+          <div class="card-header">
+            <h2>登録ユーザー一覧</h2>
+          </div>
+          <div id="usersList" class="users-list">
+            <p class="loading-text">データを読み込み中...</p>
+          </div>
+        </section>
+
+        <!-- 出退勤履歴 -->
+        <section class="card">
+          <div class="card-header">
+            <h2>アクティビティログ</h2>
+          </div>
+          <div id="attendanceRecords" class="records-list">
+            <p class="loading-text">データを読み込み中...</p>
+          </div>
+        </section>
+      </div>
+
+    </div>
+
+    <!-- フッター -->
+    <footer>
+      <p>SYSTEM STATUS: ONLINE | CODIQ AI SYSTEMS</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
