@@ -4,9 +4,11 @@ let canvas;
 let displaySize;
 let faceDetected = false;
 let currentFaceDescriptor = null;
+let currentMatchedUser = null; // 現在認識されているユーザー
 let registeredUsers = [];
+let recognition = null; // 音声認識オブジェクト
+let lastVoiceCommandTime = 0; // 連続反応防止用
 
-// API URL
 const API_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:3000' 
   : window.location.origin;
@@ -14,75 +16,210 @@ const API_URL = window.location.hostname === 'localhost'
 // 初期化
 async function init() {
   try {
-    console.log('SYSTEM: モデル読み込み中...');
-    
-    // Face-api.js モデルの読み込み
+    // モデル読み込み
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
       faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
       faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
     ]);
 
-    console.log('SYSTEM: 完了');
-    
-    // ローディングを非表示
+    // UI表示切り替え
     document.getElementById('loading').style.display = 'none';
     document.getElementById('mainContent').style.display = 'block';
     
-    // カメラの起動
+    // 各種セットアップ
     await startVideo();
-    
-    // 登録ユーザーの読み込み
     await loadUsers();
-    
-    // 出退勤履歴の読み込み
     await loadAttendanceRecords();
     
-    // イベントリスナーの設定
     setupEventListeners();
+    
+    // 音声認識開始
+    initVoiceRecognition();
     
   } catch (error) {
     console.error('INIT ERROR:', error);
-    showMessage('registerMessage', 'システムエラー: ' + error.message, 'error');
+    showMessage('registerMessage', 'エラー: ' + error.message, 'error');
   }
 }
 
-// カメラの起動
+// ---------------------------------------------------------
+// ▼▼▼ 演出・エフェクト関連関数 (新規追加) ▼▼▼
+// ---------------------------------------------------------
+
+// 1. フラッシュ演出
+function triggerFlashEffect() {
+  const flash = document.getElementById('flashOverlay');
+  if (flash) {
+    flash.classList.add('flash-active');
+    setTimeout(() => {
+      flash.classList.remove('flash-active');
+    }, 100);
+  }
+}
+
+// 2. 音声合成（システムが喋る）
+function speakGreeting(type, userName) {
+  if (!window.speechSynthesis) return;
+
+  let text = "";
+  if (type === 'clock-in') {
+    text = `おはようございます、${userName}さん。出勤を受け付けました。`;
+  } else {
+    text = `お疲れ様でした、${userName}さん。退勤を受け付けました。`;
+  }
+
+  // 既存の発話をキャンセルして即座に話す
+  window.speechSynthesis.cancel();
+
+  const uttr = new SpeechSynthesisUtterance(text);
+  uttr.lang = "ja-JP";
+  uttr.rate = 1.1; // 少し早めに
+  uttr.pitch = 1.0;
+  uttr.volume = 1.0;
+  window.speechSynthesis.speak(uttr);
+}
+
+// 3. 巨大ポップアップ表示
+function showSuccessPopup(type, userName) {
+  const popup = document.getElementById('successPopup');
+  const icon = document.getElementById('popupIcon');
+  const title = document.getElementById('popupTitle');
+  const msg = document.getElementById('popupMessage');
+  const time = document.getElementById('popupTime');
+
+  if (!popup) return;
+
+  // 現在時刻
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('ja-JP');
+
+  // 内容セット
+  msg.textContent = `${userName} さん`;
+  time.textContent = timeStr;
+
+  // クラスのリセット
+  popup.classList.remove('popup-type-in', 'popup-type-out');
+
+  if (type === 'clock-in') {
+    popup.classList.add('popup-type-in');
+    icon.textContent = '出勤処理しました'; 
+    title.textContent = 'よろしくお願いします！';
+  } else {
+    popup.classList.add('popup-type-out');
+    icon.textContent = '退勤処理しました'; 
+    title.textContent = 'お疲れ様でした！';
+  }
+
+  // 表示
+  popup.classList.add('show');
+
+  // 3秒後に消す
+  setTimeout(() => {
+    popup.classList.remove('show');
+  }, 3000);
+}
+
+// ---------------------------------------------------------
+// ▲▲▲ 演出関数終了 ▲▲▲
+// ---------------------------------------------------------
+
+
+// 音声認識（聞き取り）の初期化
+function initVoiceRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    document.getElementById('voiceStatus').innerHTML = '⚠️ 音声認識非対応ブラウザです';
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.lang = 'ja-JP';
+  recognition.continuous = true;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    const el = document.getElementById('voiceStatus');
+    if(el) {
+      el.innerHTML = '🎤 音声認識: <b>ON</b> (待機中)';
+      el.style.color = '#27ae60';
+    }
+  };
+
+  recognition.onerror = (event) => {
+    console.log('Voice Error:', event.error);
+    // エラー時は再起動を試みる
+    setTimeout(() => { if(recognition) recognition.start(); }, 1000);
+  };
+
+  recognition.onend = () => {
+    // 停止したら自動再開
+    setTimeout(() => { if(recognition) recognition.start(); }, 1000);
+  };
+
+  recognition.onresult = (event) => {
+    const last = event.results.length - 1;
+    const transcript = event.results[last][0].transcript.trim();
+    console.log('Voice Input:', transcript);
+    processVoiceCommand(transcript);
+  };
+
+  recognition.start();
+}
+
+// 音声コマンドの処理
+function processVoiceCommand(text) {
+  // ユーザーが認識されていない、または前回のコマンドから3秒以内の場合は無視
+  if (!currentMatchedUser || (Date.now() - lastVoiceCommandTime < 3000)) return;
+
+  // 判定ロジック
+  if (text.includes('出勤します')) {
+    lastVoiceCommandTime = Date.now();
+    showVoiceFeedback(`音声認識: 「${text}」`);
+    recordAttendance('clock-in');
+  } else if (text.includes('退勤します')) {
+    lastVoiceCommandTime = Date.now();
+    showVoiceFeedback(`音声認識: 「${text}」`);
+    recordAttendance('clock-out');
+  }
+}
+
+function showVoiceFeedback(msg) {
+  const el = document.getElementById('voiceStatus');
+  if (!el) return;
+  const original = '🎤 音声認識: <b>ON</b> (待機中)';
+  el.innerHTML = `🔊 ${msg}`;
+  el.style.backgroundColor = '#dff0d8';
+  setTimeout(() => {
+    el.innerHTML = original;
+    el.style.backgroundColor = '#f0f0f0';
+  }, 3000);
+}
+
+// カメラ起動
 async function startVideo() {
   video = document.getElementById('video');
   canvas = document.getElementById('overlay');
   
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        width: { ideal: 640 },
-        height: { ideal: 480 }
-      } 
+      video: { width: { ideal: 640 }, height: { ideal: 480 } } 
     });
     video.srcObject = stream;
     
-    // ビデオが再生開始したら顔検出を開始
     video.addEventListener('play', () => {
-      const { videoWidth, videoHeight } = video;
-      displaySize = { width: videoWidth, height: videoHeight };
-      
-      canvas.width = videoWidth;
-      canvas.height = videoHeight;
-      
+      displaySize = { width: video.videoWidth, height: video.videoHeight };
       faceapi.matchDimensions(canvas, displaySize);
-      
-      // 顔検出ループを開始
       detectFaces();
     });
-    
-  } catch (error) {
-    console.error('CAMERA ERROR:', error);
-    alert('エラー: カメラへのアクセスが拒否されました');
+  } catch (err) {
+    alert('カメラエラー: ' + err.message);
   }
 }
 
-// 顔検出ループ
+// 顔認識ループ
 async function detectFaces() {
+  // 軽量モデルで検出
   const detections = await faceapi
     .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
     .withFaceLandmarks()
@@ -92,71 +229,51 @@ async function detectFaces() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
   if (detections) {
-    // 顔が検出された
     faceDetected = true;
     currentFaceDescriptor = detections.descriptor;
     
-    // ★変更点: 描画の前にマッチングを行う
-    const matchedUser = await matchFace(currentFaceDescriptor);
-    
-    // ラベルの決定
-    const labelText = matchedUser ? matchedUser.name : '未登録';
-    
-    // 描画設定（リサイズ）
+    // ユーザー照合
+    const matched = await matchFace(currentFaceDescriptor);
+    currentMatchedUser = matched;
+
+    // 描画設定
+    const label = matched ? matched.name : '未登録';
+    const boxColor = matched ? '#27ae60' : '#f39c12';
+
     const resizedDetections = faceapi.resizeResults(detections, displaySize);
-    
-    // 顔の枠を描画 (シルバー/白系) + 名前ラベル
     const box = resizedDetections.detection.box;
+    
     const drawBox = new faceapi.draw.DrawBox(box, {
-      label: labelText, // ★ここを動的に変更
-      boxColor: 'rgba(255, 255, 255, 0.8)',
-      lineWidth: 2,
-      drawLabelOptions: {
-        fontSize: 16,
-        padding: 8
-      }
+      label: label,
+      boxColor: boxColor,
+      lineWidth: 2
     });
     drawBox.draw(canvas);
 
-    // 顔のランドマークを表示
-    const drawLandmarks = new faceapi.draw.DrawFaceLandmarks(resizedDetections.landmarks, {
-      drawLines: true,
-      drawPoints: true,
-      lineWidth: 1,
-      pointSize: 2,
-      lineColor: 'rgba(127, 140, 141, 0.5)', // シルバーグレー
-      pointColor: 'rgba(255, 255, 255, 0.8)' // 白
-    });
-    drawLandmarks.draw(canvas);
+    updateDetectionStatus(true, matched);
     
-    // ステータス更新
-    updateDetectionStatus(true, matchedUser);
-    
-    // ボタンの有効化
+    // ボタン有効化
     document.getElementById('clockInBtn').disabled = false;
     document.getElementById('clockOutBtn').disabled = false;
     
   } else {
-    // 顔が検出されない
     faceDetected = false;
     currentFaceDescriptor = null;
-    
+    currentMatchedUser = null;
     updateDetectionStatus(false);
     
-    // ボタンの無効化
+    // ボタン無効化
     document.getElementById('clockInBtn').disabled = true;
     document.getElementById('clockOutBtn').disabled = true;
   }
   
-  // 次のフレームで再検出
   requestAnimationFrame(detectFaces);
 }
 
-// 顔のマッチング
+// 顔マッチング
 async function matchFace(descriptor) {
   if (registeredUsers.length === 0) return null;
-  
-  const threshold = 0.6; // マッチング閾値
+  const threshold = 0.5;
   let bestMatch = null;
   let minDistance = Infinity;
   
@@ -167,247 +284,169 @@ async function matchFace(descriptor) {
       bestMatch = user;
     }
   }
-  
   return bestMatch;
 }
 
-// 検出ステータスの更新
-function updateDetectionStatus(detected, matchedUser = null) {
-  const statusIndicator = document.querySelector('.status-indicator');
-  const statusText = document.getElementById('statusText');
+function updateDetectionStatus(detected, user = null) {
+  const indicator = document.querySelector('.status-indicator');
+  const text = document.getElementById('statusText');
   
   if (detected) {
-    statusIndicator.classList.add('detected');
-    if (matchedUser) {
-      statusText.innerHTML = `認証完了: <b>${escapeHtml(matchedUser.name)}</b>`;
+    indicator.classList.add('detected');
+    if (user) {
+      text.innerHTML = `認証OK: <b>${escapeHtml(user.name)}</b>`;
+      text.style.color = '#27ae60';
     } else {
-      statusText.innerHTML = '未登録ユーザーを検出';
+      text.innerHTML = '未登録ユーザー';
+      text.style.color = '#e67e22';
     }
   } else {
-    statusIndicator.classList.remove('detected');
-    statusText.textContent = 'スキャン中...';
+    indicator.classList.remove('detected');
+    text.textContent = 'スキャン中...';
+    text.style.color = '#333';
   }
 }
 
-// イベントリスナーの設定
 function setupEventListeners() {
   document.getElementById('registerBtn').addEventListener('click', registerUser);
   document.getElementById('clockInBtn').addEventListener('click', () => recordAttendance('clock-in'));
   document.getElementById('clockOutBtn').addEventListener('click', () => recordAttendance('clock-out'));
+  document.getElementById('downloadCsvBtn').addEventListener('click', downloadCsv);
 }
 
-// ユーザー登録
+// ユーザー登録処理
 async function registerUser() {
   const nameInput = document.getElementById('userName');
   const name = nameInput.value.trim();
   
-  if (!name) {
-    showMessage('registerMessage', 'エラー: 名前を入力してください', 'error');
-    return;
-  }
-  
-  if (!faceDetected || !currentFaceDescriptor) {
-    showMessage('registerMessage', 'エラー: 顔が検出されません', 'error');
+  if (!name || !currentFaceDescriptor) {
+    showMessage('registerMessage', '名前を入力し、顔をカメラに向けてください', 'error');
     return;
   }
   
   try {
-    // 顔画像のキャプチャ
     const faceImage = await captureFaceImage();
-    
-    const response = await fetch(`${API_URL}/api/register-user`, {
+    const res = await fetch(`${API_URL}/api/register-user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name,
-        faceDescriptor: Array.from(currentFaceDescriptor)
-      })
+      body: JSON.stringify({ name, faceDescriptor: Array.from(currentFaceDescriptor) })
     });
     
-    const data = await response.json();
-    
-    if (data.success) {
+    if ((await res.json()).success) {
       showMessage('registerMessage', `登録完了: ${name}`, 'success');
       nameInput.value = '';
-      
-      // ユーザー一覧を更新
-      await loadUsers();
-    } else {
-      showMessage('registerMessage', '登録失敗: ' + data.error, 'error');
+      loadUsers();
     }
-    
-  } catch (error) {
-    console.error('REG ERROR:', error);
-    showMessage('registerMessage', 'システムエラー: ' + error.message, 'error');
+  } catch (err) {
+    showMessage('registerMessage', '登録エラー', 'error');
   }
 }
 
-// 出退勤記録
+// ---------------------------------------------------------
+// 打刻処理（演出組み込み版）
+// ---------------------------------------------------------
 async function recordAttendance(type) {
-  if (!faceDetected || !currentFaceDescriptor) {
-    showMessage('actionMessage', 'エラー: 顔が検出されません', 'error');
+  if (!currentMatchedUser) {
+    showMessage('actionMessage', 'ユーザーが認証されていません', 'error');
     return;
   }
   
   try {
-    // 登録ユーザーと照合
-    const matchedUser = await matchFace(currentFaceDescriptor);
-    
-    if (!matchedUser) {
-      showMessage('actionMessage', '認証拒否: ユーザーが登録されていません', 'error');
-      return;
-    }
-    
-    // 顔画像のキャプチャ
+    // ★演出実行（体感速度向上のため通信前に実行）
+    triggerFlashEffect();
+    showSuccessPopup(type, currentMatchedUser.name);
+    speakGreeting(type, currentMatchedUser.name);
+
+    // サーバー記録
     const faceImage = await captureFaceImage();
-    
-    const response = await fetch(`${API_URL}/api/attendance`, {
+    const res = await fetch(`${API_URL}/api/attendance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId: matchedUser.id,
-        userName: matchedUser.name,
-        type: type,
-        faceImage: faceImage
+        userId: currentMatchedUser.id,
+        userName: currentMatchedUser.name,
+        type,
+        faceImage
       })
     });
     
-    const data = await response.json();
-    
-    if (data.success) {
-      const typeText = type === 'clock-in' ? '出勤' : '退勤';
-      showMessage('actionMessage', `記録完了: ${matchedUser.name} [${typeText}]`, 'success');
-      
-      // 履歴を更新
-      await loadAttendanceRecords();
-    } else {
-      showMessage('actionMessage', '記録失敗: ' + data.error, 'error');
+    if ((await res.json()).success) {
+      // ログ更新
+      loadAttendanceRecords();
     }
-    
-  } catch (error) {
-    console.error('LOG ERROR:', error);
-    showMessage('actionMessage', 'システムエラー: ' + error.message, 'error');
+  } catch (err) {
+    console.error(err);
+    showMessage('actionMessage', '通信エラー', 'error');
   }
 }
 
-// 顔画像のキャプチャ
-async function captureFaceImage() {
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = video.videoWidth;
-  tempCanvas.height = video.videoHeight;
-  const ctx = tempCanvas.getContext('2d');
-  
-  // モノクロにして保存（デザインに合わせて）
-  ctx.filter = 'grayscale(100%)';
-  ctx.drawImage(video, 0, 0);
-  return tempCanvas.toDataURL('image/jpeg', 0.8);
+// CSVダウンロード
+function downloadCsv() {
+  window.location.href = `${API_URL}/api/download-csv`;
 }
 
-// ユーザー一覧の読み込み
+// ユーティリティ
+async function captureFaceImage() {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
 async function loadUsers() {
   try {
-    // ユーザー情報取得
-    const usersResponse = await fetch(`${API_URL}/api/users`);
-    const users = await usersResponse.json();
+    const res = await fetch(`${API_URL}/api/face-descriptors`);
+    const data = await res.json();
+    registeredUsers = data.map(d => ({ ...d, descriptor: new Float32Array(d.descriptor) }));
     
-    // 顔データ取得
-    const descriptorsResponse = await fetch(`${API_URL}/api/face-descriptors`);
-    const descriptors = await descriptorsResponse.json();
-    
-    // 登録ユーザーの更新
-    registeredUsers = descriptors.map(d => ({
-      id: d.id,
-      name: d.name,
-      descriptor: new Float32Array(d.descriptor)
-    }));
-    
-    // UI更新
-    const usersList = document.getElementById('usersList');
-    
-    if (users.length === 0) {
-      usersList.innerHTML = '<p class="loading-text">データなし</p>';
-      return;
+    const listEl = document.getElementById('usersList');
+    if(registeredUsers.length === 0) {
+      listEl.innerHTML = '<p class="loading-text">データなし</p>';
+    } else {
+      listEl.innerHTML = registeredUsers.map(u => `<div class="user-item"><h3>${escapeHtml(u.name)}</h3></div>`).join('');
     }
-    
-    usersList.innerHTML = users.map(user => `
-      <div class="user-item">
-        <h3>${escapeHtml(user.name)}</h3>
-        <p>REG: ${new Date(user.registeredAt).toLocaleString('ja-JP')}</p>
-      </div>
-    `).join('');
-    
-  } catch (error) {
-    console.error('LOAD ERROR:', error);
-    document.getElementById('usersList').innerHTML = '<p class="loading-text">データエラー</p>';
-  }
+  } catch(e) { console.error(e); }
 }
 
-// 出退勤履歴の読み込み
 async function loadAttendanceRecords() {
   try {
-    const response = await fetch(`${API_URL}/api/attendance`);
-    const records = await response.json();
+    const res = await fetch(`${API_URL}/api/attendance`);
+    const records = await res.json();
     
-    const recordsList = document.getElementById('attendanceRecords');
-    
-    if (records.length === 0) {
-      recordsList.innerHTML = '<p class="loading-text">ログなし</p>';
+    const listEl = document.getElementById('attendanceRecords');
+    if(records.length === 0) {
+      listEl.innerHTML = '<p class="loading-text">ログなし</p>';
       return;
     }
-    
-    // 最新20件のみ表示
-    const recentRecords = records.slice(0, 20);
-    
-    recordsList.innerHTML = recentRecords.map(record => {
-      const typeText = record.type === 'clock-in' ? 'IN' : 'OUT';
-      const typeClass = record.type;
-      const date = new Date(record.timestamp);
-      
-      return `
-        <div class="record-item ${typeClass}">
-          ${record.faceImage ? `<img src="${record.faceImage}" alt="FACE">` : ''}
-          <div class="record-info">
-            <h4>${escapeHtml(record.userName)}</h4>
-            <p>${date.toLocaleString('ja-JP', { 
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit'
-            })}</p>
-          </div>
-          <span class="record-badge ${typeClass}">${typeText}</span>
+
+    listEl.innerHTML = records.map(r => `
+      <div class="record-item ${r.type}">
+        ${r.faceImage ? `<img src="${r.faceImage}">` : ''}
+        <div class="record-info">
+          <h4>${escapeHtml(r.userName)}</h4>
+          <p>${new Date(r.timestamp).toLocaleString('ja-JP')}</p>
         </div>
-      `;
-    }).join('');
-    
-  } catch (error) {
-    console.error('HISTORY ERROR:', error);
-    document.getElementById('attendanceRecords').innerHTML = '<p class="loading-text">データエラー</p>';
-  }
+        <span class="record-badge">${r.type === 'clock-in' ? '出勤' : '退勤'}</span>
+      </div>
+    `).join('');
+  } catch(e) { console.error(e); }
 }
 
-// メッセージ表示
-function showMessage(elementId, message, type) {
-  const messageEl = document.getElementById(elementId);
-  messageEl.textContent = message;
-  messageEl.className = `message ${type}`;
-  messageEl.style.display = 'block';
-  
-  // 5秒後に自動非表示
-  setTimeout(() => {
-    messageEl.style.display = 'none';
-    messageEl.className = 'message';
-  }, 5000);
+function showMessage(id, text, type) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.textContent = text;
+  el.className = `message ${type}`;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
 }
 
-// HTMLエスケープ
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
-// 初期化実行
+// 開始
 document.addEventListener('DOMContentLoaded', init);

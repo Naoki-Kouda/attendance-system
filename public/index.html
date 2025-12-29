@@ -3,56 +3,52 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>顔認識出退勤管理システム</title>
+  <title>AI顔認証出退勤システム</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Face-api.js -->
   <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 </head>
 <body>
-  <div class="scan-line"></div>
+  <!-- 削除: scan-line -->
+  
   <div class="container">
     <header>
-      <h1>顔認識出退勤システム</h1>
-      <p class="subtitle">AI FACE RECOGNITION INTERFACE // TYPE-SILVER</p>
+      <h1>AI顔認証出退勤システム</h1>
+      <p class="subtitle">AI FACE RECOGNITION & VOICE CONTROL // POC v1.1</p>
     </header>
 
-    <!-- ローディング表示 -->
     <div id="loading" class="loading">
       <div class="spinner"></div>
       <p>システム初期化中...</p>
     </div>
 
-    <!-- メインコンテンツ -->
     <div id="mainContent" style="display: none;">
       
-      <!-- ユーザー登録セクション -->
+      <!-- ユーザー登録 -->
       <section class="card registration-section">
-        <div class="card-header">
-          <h2>新規ユーザー登録</h2>
-        </div>
+        <div class="card-header"><h2>新規ユーザー登録</h2></div>
         <div class="card-body">
           <p class="info-text">IDと顔データをデータベースに登録します</p>
           <div class="input-group">
             <input type="text" id="userName" placeholder="名前を入力..." />
-            <button id="registerBtn" class="btn btn-secondary">
-              登録実行
-            </button>
+            <button id="registerBtn" class="btn btn-secondary">登録実行</button>
           </div>
           <div id="registerMessage" class="message"></div>
         </div>
       </section>
 
-      <!-- カメラセクション -->
+      <!-- カメラ＆音声操作エリア -->
       <section class="card camera-section">
         <div class="card-header">
-          <h2>映像入力モニター</h2>
+          <h2>映像・音声入力モニター</h2>
+          <div id="voiceStatus" class="voice-status">
+            🎤 音声認識: 待機中...
+          </div>
         </div>
         <div class="card-body">
           <div class="video-wrapper">
             <div class="video-container">
               <video id="video" autoplay muted playsinline></video>
               <canvas id="overlay"></canvas>
-              <!-- 装飾的なコーナーブラケット -->
               <div class="corner-bracket top-left"></div>
               <div class="corner-bracket top-right"></div>
               <div class="corner-bracket bottom-left"></div>
@@ -64,13 +60,13 @@
             </div>
           </div>
           
+          <div class="voice-instruction">
+            <p>画面に向かって<b>「出勤します」</b>または<b>「退勤します」</b>と話しかけてください</p>
+          </div>
+
           <div class="button-group">
-            <button id="clockInBtn" class="btn btn-primary btn-large" disabled>
-              出勤記録
-            </button>
-            <button id="clockOutBtn" class="btn btn-danger btn-large" disabled>
-              退勤記録
-            </button>
+            <button id="clockInBtn" class="btn btn-primary btn-large" disabled>出勤</button>
+            <button id="clockOutBtn" class="btn btn-danger btn-large" disabled>退勤</button>
           </div>
           
           <div id="actionMessage" class="message"></div>
@@ -78,34 +74,43 @@
       </section>
 
       <div class="grid-layout">
-        <!-- 登録ユーザー一覧 -->
         <section class="card">
-          <div class="card-header">
-            <h2>登録ユーザー一覧</h2>
-          </div>
+          <div class="card-header"><h2>登録ユーザー一覧</h2></div>
           <div id="usersList" class="users-list">
-            <p class="loading-text">データを読み込み中...</p>
+            <p class="loading-text">読み込み中...</p>
           </div>
         </section>
 
-        <!-- 出退勤履歴 -->
         <section class="card">
-          <div class="card-header">
-            <h2>アクティビティログ</h2>
+          <div class="card-header" style="justify-content: space-between;">
+            <h2>出退勤ログ</h2>
+            <button id="downloadCsvBtn" class="btn btn-sm btn-secondary">
+              📥 CSV出力
+            </button>
           </div>
           <div id="attendanceRecords" class="records-list">
-            <p class="loading-text">データを読み込み中...</p>
+            <p class="loading-text">読み込み中...</p>
           </div>
         </section>
       </div>
-
     </div>
-
-    <!-- フッター -->
-    <footer>
-      <p>SYSTEM STATUS: ONLINE | CODIQ AI SYSTEMS</p>
-    </footer>
+    <footer><p>SYSTEM STATUS: ONLINE | CODIQ AI SYSTEMS</p></footer>
   </div>
+
+  <!-- ▼▼ 追加: 演出用要素 ▼▼ -->
+  <!-- フラッシュ用 -->
+  <div id="flashOverlay" class="flash-overlay"></div>
+  
+  <!-- 成功ポップアップ用 -->
+  <div id="successPopup" class="success-popup">
+    <div class="popup-content">
+      <div class="popup-icon" id="popupIcon">✅</div>
+      <h2 id="popupTitle">出勤を受け付けました</h2>
+      <p id="popupMessage">幸田直樹さん</p>
+      <div class="popup-time" id="popupTime">09:00:00</div>
+    </div>
+  </div>
+  <!-- ▲▲ 追加終了 ▲▲ -->
 
   <script src="app.js"></script>
 </body>

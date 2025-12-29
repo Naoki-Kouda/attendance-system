@@ -6,37 +6,30 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ミドルウェア
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
-// データファイルのパス
 const DATA_FILE = path.join(__dirname, 'attendance_data.json');
 
-// データファイルの初期化
+// データ初期化
 if (!fs.existsSync(DATA_FILE)) {
   fs.writeFileSync(DATA_FILE, JSON.stringify({ users: [], records: [] }, null, 2));
 }
 
-// データの読み込み
 function readData() {
   try {
-    const data = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(data);
+    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   } catch (error) {
-    console.error('データ読み込みエラー:', error);
     return { users: [], records: [] };
   }
 }
 
-// データの保存
 function saveData(data) {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
     return true;
   } catch (error) {
-    console.error('データ保存エラー:', error);
     return false;
   }
 }
@@ -44,10 +37,7 @@ function saveData(data) {
 // ユーザー登録
 app.post('/api/register-user', (req, res) => {
   const { name, faceDescriptor } = req.body;
-  
-  if (!name || !faceDescriptor) {
-    return res.status(400).json({ error: '名前と顔データが必要です' });
-  }
+  if (!name || !faceDescriptor) return res.status(400).json({ error: 'データ不足' });
 
   const data = readData();
   const userId = Date.now().toString();
@@ -59,88 +49,101 @@ app.post('/api/register-user', (req, res) => {
     registeredAt: new Date().toISOString()
   });
 
-  if (saveData(data)) {
-    res.json({ success: true, userId, message: 'ユーザーを登録しました' });
-  } else {
-    res.status(500).json({ error: 'データの保存に失敗しました' });
-  }
+  saveData(data);
+  res.json({ success: true, userId });
 });
 
-// ユーザー一覧取得
+// ユーザー取得
 app.get('/api/users', (req, res) => {
   const data = readData();
-  // 顔データを除外して送信
-  const users = data.users.map(u => ({
-    id: u.id,
-    name: u.name,
-    registeredAt: u.registeredAt
-  }));
-  res.json(users);
+  res.json(data.users.map(u => ({ id: u.id, name: u.name, registeredAt: u.registeredAt })));
 });
 
-// 全ユーザーの顔データ取得（認証用）
+// 顔データ取得
 app.get('/api/face-descriptors', (req, res) => {
   const data = readData();
-  const descriptors = data.users.map(u => ({
-    id: u.id,
-    name: u.name,
-    descriptor: u.faceDescriptor
-  }));
-  res.json(descriptors);
+  res.json(data.users.map(u => ({ id: u.id, name: u.name, descriptor: u.faceDescriptor })));
 });
 
-// 出退勤記録
+// 打刻記録
 app.post('/api/attendance', (req, res) => {
   const { userId, userName, type, faceImage } = req.body;
-  
-  if (!userId || !type) {
-    return res.status(400).json({ error: '必要なデータが不足しています' });
-  }
-
   const data = readData();
-  const record = {
+  
+  data.records.push({
     id: Date.now().toString(),
-    userId: userId,
-    userName: userName,
-    type: type, // 'clock-in' or 'clock-out'
+    userId, userName, type,
     timestamp: new Date().toISOString(),
-    faceImage: faceImage
-  };
+    faceImage
+  });
 
-  data.records.push(record);
-
-  if (saveData(data)) {
-    res.json({ success: true, record, message: `${type === 'clock-in' ? '出勤' : '退勤'}を記録しました` });
-  } else {
-    res.status(500).json({ error: 'データの保存に失敗しました' });
-  }
+  saveData(data);
+  res.json({ success: true });
 });
 
-// 出退勤記録取得
+// 履歴取得
 app.get('/api/attendance', (req, res) => {
   const data = readData();
-  // 最新50件を返す
-  const records = data.records.slice(-50).reverse();
-  res.json(records);
+  res.json(data.records.slice(-50).reverse());
 });
 
-// 特定ユーザーの記録取得
-app.get('/api/attendance/:userId', (req, res) => {
+// ▼▼▼ 新規追加: CSVダウンロード機能 ▼▼▼
+app.get('/api/download-csv', (req, res) => {
   const data = readData();
-  const userRecords = data.records
-    .filter(r => r.userId === req.params.userId)
-    .slice(-30)
-    .reverse();
-  res.json(userRecords);
-});
+  const records = data.records;
 
-// ルートパス
+  // データを「日付_ユーザーID」でグループ化して、開始・終了時間を計算
+  const summary = {};
+
+  records.forEach(r => {
+    const date = new Date(r.timestamp);
+    const dateStr = date.toLocaleDateString('ja-JP'); // YYYY/MM/DD
+    const timeStr = date.toLocaleTimeString('ja-JP'); // HH:MM:SS
+    
+    // キー: 日付_ユーザーID
+    const key = `${dateStr}_${r.userId}`;
+
+    if (!summary[key]) {
+      summary[key] = {
+        date: dateStr,
+        name: r.userName,
+        clockIn: null,
+        clockOut: null
+      };
+    }
+
+    // 出勤: その日一番早い時間を採用
+    if (r.type === 'clock-in') {
+      if (!summary[key].clockIn || timeStr < summary[key].clockIn) {
+        summary[key].clockIn = timeStr;
+      }
+    }
+    // 退勤: その日一番遅い時間を採用
+    if (r.type === 'clock-out') {
+      if (!summary[key].clockOut || timeStr > summary[key].clockOut) {
+        summary[key].clockOut = timeStr;
+      }
+    }
+  });
+
+  // CSV作成
+  let csvContent = '\uFEFF'; // Excelで文字化けしないためのBOM
+  csvContent += '日付,名前,出勤時刻,退勤時刻\n';
+
+  Object.values(summary).sort((a, b) => a.date.localeCompare(b.date)).forEach(row => {
+    const inTime = row.clockIn || '--:--:--';
+    const outTime = row.clockOut || '--:--:--';
+    csvContent += `${row.date},${row.name},${inTime},${outTime}\n`;
+  });
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=attendance_log.csv');
+  res.send(csvContent);
+});
+// ▲▲▲ 追加終了 ▲▲▲
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// サーバー起動
-app.listen(PORT, () => {
-  console.log(`🚀 サーバーが起動しました: http://localhost:${PORT}`);
-  console.log(`📊 出退勤システムが利用可能です`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
