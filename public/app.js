@@ -23,14 +23,20 @@ async function init() {
       faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
     ]);
 
-    // UI表示切り替え
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
+    // UI表示切り替え（ヘッダーのバッジ更新とメインエリア表示）
+    const loadingEl = document.getElementById('loading');
+    if (loadingEl) {
+      loadingEl.textContent = "READY";
+      loadingEl.style.background = "rgba(46, 204, 113, 0.3)";
+    }
+    
+    // CSSでFlexboxレイアウトを使用しているため 'block' ではなく 'flex' に設定
+    document.getElementById('mainContent').style.display = 'flex';
     
     // 各種セットアップ
     await startVideo();
     await loadUsers();
-    await loadAttendanceRecords();
+    await loadAttendanceRecords(); // データ取得のみ行う（表示はしない）
     
     setupEventListeners();
     
@@ -44,7 +50,7 @@ async function init() {
 }
 
 // ---------------------------------------------------------
-// ▼▼▼ 演出・エフェクト関連関数 (新規追加) ▼▼▼
+// ▼▼▼ 演出・エフェクト関連関数 ▼▼▼
 // ---------------------------------------------------------
 
 // 1. フラッシュ演出
@@ -80,7 +86,7 @@ function speakGreeting(type, userName) {
   window.speechSynthesis.speak(uttr);
 }
 
-// 3. 巨大ポップアップ表示
+// 3. ポップアップ表示
 function showSuccessPopup(type, userName) {
   const popup = document.getElementById('successPopup');
   const icon = document.getElementById('popupIcon');
@@ -103,12 +109,12 @@ function showSuccessPopup(type, userName) {
 
   if (type === 'clock-in') {
     popup.classList.add('popup-type-in');
-    icon.textContent = '出勤処理しました'; 
-    title.textContent = 'よろしくお願いします！';
+    icon.textContent = '☀️'; 
+    title.textContent = '出勤しました';
   } else {
     popup.classList.add('popup-type-out');
-    icon.textContent = '退勤処理しました'; 
-    title.textContent = 'お疲れ様でした！';
+    icon.textContent = '🌙'; 
+    title.textContent = '退勤しました';
   }
 
   // 表示
@@ -129,7 +135,8 @@ function showSuccessPopup(type, userName) {
 function initVoiceRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    document.getElementById('voiceStatus').innerHTML = '⚠️ 音声認識非対応ブラウザです';
+    const statusEl = document.getElementById('voiceStatus');
+    if (statusEl) statusEl.innerHTML = '⚠️ 音声非対応';
     return;
   }
 
@@ -141,8 +148,8 @@ function initVoiceRecognition() {
   recognition.onstart = () => {
     const el = document.getElementById('voiceStatus');
     if(el) {
-      el.innerHTML = '🎤 音声認識: <b>ON</b> (待機中)';
-      el.style.color = '#27ae60';
+      el.innerHTML = '🎤 待機中';
+      el.style.color = '#fff';
     }
   };
 
@@ -173,13 +180,13 @@ function processVoiceCommand(text) {
   if (!currentMatchedUser || (Date.now() - lastVoiceCommandTime < 3000)) return;
 
   // 判定ロジック
-  if (text.includes('出勤します')) {
+  if (text.includes('出勤')) {
     lastVoiceCommandTime = Date.now();
-    showVoiceFeedback(`音声認識: 「${text}」`);
+    showVoiceFeedback(`認識: ${text}`);
     recordAttendance('clock-in');
-  } else if (text.includes('退勤します')) {
+  } else if (text.includes('退勤')) {
     lastVoiceCommandTime = Date.now();
-    showVoiceFeedback(`音声認識: 「${text}」`);
+    showVoiceFeedback(`認識: ${text}`);
     recordAttendance('clock-out');
   }
 }
@@ -187,12 +194,12 @@ function processVoiceCommand(text) {
 function showVoiceFeedback(msg) {
   const el = document.getElementById('voiceStatus');
   if (!el) return;
-  const original = '🎤 音声認識: <b>ON</b> (待機中)';
+  const original = '🎤 待機中';
   el.innerHTML = `🔊 ${msg}`;
-  el.style.backgroundColor = '#dff0d8';
+  el.style.backgroundColor = 'rgba(46, 204, 113, 0.8)';
   setTimeout(() => {
     el.innerHTML = original;
-    el.style.backgroundColor = '#f0f0f0';
+    el.style.backgroundColor = 'rgba(0,0,0,0.6)';
   }, 3000);
 }
 
@@ -203,12 +210,18 @@ async function startVideo() {
   
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { width: { ideal: 640 }, height: { ideal: 480 } } 
+      video: { 
+        width: { ideal: 640 }, 
+        height: { ideal: 480 },
+        facingMode: "user" // インカメラ優先
+      } 
     });
     video.srcObject = stream;
     
     video.addEventListener('play', () => {
-      displaySize = { width: video.videoWidth, height: video.videoHeight };
+      // コンテナサイズに合わせてキャンバスを調整
+      const container = document.querySelector('.video-container');
+      displaySize = { width: container.clientWidth, height: container.clientHeight };
       faceapi.matchDimensions(canvas, displaySize);
       detectFaces();
     });
@@ -219,12 +232,21 @@ async function startVideo() {
 
 // 顔認識ループ
 async function detectFaces() {
+  if (!video || video.paused || video.ended) return setTimeout(() => detectFaces(), 100);
+
   // 軽量モデルで検出
   const detections = await faceapi
     .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
     .withFaceLandmarks()
     .withFaceDescriptor();
   
+  // キャンバスのサイズをビデオの表示サイズに合わせる（レスポンシブ対応）
+  const container = document.querySelector('.video-container');
+  if (container.clientWidth !== displaySize.width || container.clientHeight !== displaySize.height) {
+    displaySize = { width: container.clientWidth, height: container.clientHeight };
+    faceapi.matchDimensions(canvas, displaySize);
+  }
+
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
@@ -237,7 +259,7 @@ async function detectFaces() {
     currentMatchedUser = matched;
 
     // 描画設定
-    const label = matched ? matched.name : '未登録';
+    const label = matched ? matched.name : 'Unknown';
     const boxColor = matched ? '#27ae60' : '#f39c12';
 
     const resizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -253,8 +275,10 @@ async function detectFaces() {
     updateDetectionStatus(true, matched);
     
     // ボタン有効化
-    document.getElementById('clockInBtn').disabled = false;
-    document.getElementById('clockOutBtn').disabled = false;
+    const inBtn = document.getElementById('clockInBtn');
+    const outBtn = document.getElementById('clockOutBtn');
+    if(inBtn) inBtn.disabled = false;
+    if(outBtn) outBtn.disabled = false;
     
   } else {
     faceDetected = false;
@@ -263,10 +287,13 @@ async function detectFaces() {
     updateDetectionStatus(false);
     
     // ボタン無効化
-    document.getElementById('clockInBtn').disabled = true;
-    document.getElementById('clockOutBtn').disabled = true;
+    const inBtn = document.getElementById('clockInBtn');
+    const outBtn = document.getElementById('clockOutBtn');
+    if(inBtn) inBtn.disabled = true;
+    if(outBtn) outBtn.disabled = true;
   }
   
+  ctx.restore();
   requestAnimationFrame(detectFaces);
 }
 
@@ -291,19 +318,21 @@ function updateDetectionStatus(detected, user = null) {
   const indicator = document.querySelector('.status-indicator');
   const text = document.getElementById('statusText');
   
+  if (!indicator || !text) return;
+
   if (detected) {
     indicator.classList.add('detected');
     if (user) {
-      text.innerHTML = `認証OK: <b>${escapeHtml(user.name)}</b>`;
-      text.style.color = '#27ae60';
+      text.innerHTML = `OK: <b>${escapeHtml(user.name)}</b>`;
+      text.style.color = '#2ecc71';
     } else {
-      text.innerHTML = '未登録ユーザー';
-      text.style.color = '#e67e22';
+      text.innerHTML = '未登録';
+      text.style.color = '#f1c40f';
     }
   } else {
     indicator.classList.remove('detected');
-    text.textContent = 'スキャン中...';
-    text.style.color = '#333';
+    text.textContent = 'SCANNING...';
+    text.style.color = '#fff';
   }
 }
 
@@ -320,12 +349,14 @@ async function registerUser() {
   const name = nameInput.value.trim();
   
   if (!name || !currentFaceDescriptor) {
-    showMessage('registerMessage', '名前を入力し、顔をカメラに向けてください', 'error');
+    showMessage('registerMessage', '名前を入力し、カメラを見てください', 'error');
     return;
   }
   
   try {
-    const faceImage = await captureFaceImage();
+    // メッセージ表示
+    showMessage('registerMessage', '登録中...', 'success');
+
     const res = await fetch(`${API_URL}/api/register-user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -333,7 +364,7 @@ async function registerUser() {
     });
     
     if ((await res.json()).success) {
-      showMessage('registerMessage', `登録完了: ${name}`, 'success');
+      showMessage('registerMessage', `登録しました: ${name}`, 'success');
       nameInput.value = '';
       loadUsers();
     }
@@ -343,7 +374,7 @@ async function registerUser() {
 }
 
 // ---------------------------------------------------------
-// 打刻処理（演出組み込み版）
+// 打刻処理
 // ---------------------------------------------------------
 async function recordAttendance(type) {
   if (!currentMatchedUser) {
@@ -352,7 +383,7 @@ async function recordAttendance(type) {
   }
   
   try {
-    // ★演出実行（体感速度向上のため通信前に実行）
+    // 演出実行（通信待ち時間を体感させないため先に実行）
     triggerFlashEffect();
     showSuccessPopup(type, currentMatchedUser.name);
     speakGreeting(type, currentMatchedUser.name);
@@ -371,7 +402,8 @@ async function recordAttendance(type) {
     });
     
     if ((await res.json()).success) {
-      // ログ更新
+      console.log(`${type} recorded for ${currentMatchedUser.name}`);
+      // ログデータのリロード（UIには表示しないが内部データは更新）
       loadAttendanceRecords();
     }
   } catch (err) {
@@ -394,42 +426,23 @@ async function captureFaceImage() {
   return c.toDataURL('image/jpeg', 0.7);
 }
 
+// ユーザー一覧読み込み（コンソール出力のみ）
 async function loadUsers() {
   try {
     const res = await fetch(`${API_URL}/api/face-descriptors`);
     const data = await res.json();
     registeredUsers = data.map(d => ({ ...d, descriptor: new Float32Array(d.descriptor) }));
-    
-    const listEl = document.getElementById('usersList');
-    if(registeredUsers.length === 0) {
-      listEl.innerHTML = '<p class="loading-text">データなし</p>';
-    } else {
-      listEl.innerHTML = registeredUsers.map(u => `<div class="user-item"><h3>${escapeHtml(u.name)}</h3></div>`).join('');
-    }
+    console.log(`Loaded ${registeredUsers.length} users.`);
   } catch(e) { console.error(e); }
 }
 
+// ログ読み込み（コンソール出力のみ）
 async function loadAttendanceRecords() {
   try {
+    // データ自体は取得するが、画面には描画しない
     const res = await fetch(`${API_URL}/api/attendance`);
     const records = await res.json();
-    
-    const listEl = document.getElementById('attendanceRecords');
-    if(records.length === 0) {
-      listEl.innerHTML = '<p class="loading-text">ログなし</p>';
-      return;
-    }
-
-    listEl.innerHTML = records.map(r => `
-      <div class="record-item ${r.type}">
-        ${r.faceImage ? `<img src="${r.faceImage}">` : ''}
-        <div class="record-info">
-          <h4>${escapeHtml(r.userName)}</h4>
-          <p>${new Date(r.timestamp).toLocaleString('ja-JP')}</p>
-        </div>
-        <span class="record-badge">${r.type === 'clock-in' ? '出勤' : '退勤'}</span>
-      </div>
-    `).join('');
+    console.log(`Loaded ${records.length} attendance records.`);
   } catch(e) { console.error(e); }
 }
 
@@ -437,7 +450,14 @@ function showMessage(id, text, type) {
   const el = document.getElementById(id);
   if(!el) return;
   el.textContent = text;
-  el.className = `message ${type}`;
+  
+  // エラーなら赤、成功なら緑っぽい色などに変更可能
+  if (type === 'error') {
+    el.style.backgroundColor = 'rgba(192, 57, 43, 0.9)';
+  } else {
+    el.style.backgroundColor = 'rgba(39, 174, 96, 0.9)';
+  }
+  
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 3000);
 }
