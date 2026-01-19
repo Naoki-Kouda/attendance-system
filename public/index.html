@@ -2,23 +2,56 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- ビューポート設定を調整 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>AI顔認証出退勤システム</title>
+  <title>AI出退勤システム</title>
+  <!-- 日本語フォント Noto Sans JP を読み込み -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 </head>
 <body>
   
+  <!-- ▼▼▼ 新・スタート画面 ▼▼▼ -->
+  <div id="startScreen" class="start-screen">
+    <!-- 背景の光（演出用） -->
+    <div class="ambient-light light-1"></div>
+    <div class="ambient-light light-2"></div>
+    <div class="ambient-light light-3"></div>
+
+    <!-- ガラス風カード -->
+    <div class="glass-card">
+      <div class="icon-wrapper">
+        <!-- 顔認証スキャン風アイコン -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+          <path d="M8 12a4 4 0 1 0 8 0 4 4 0 0 0-8 0"></path>
+          <line x1="12" y1="3" x2="12" y2="5"></line>
+          <line x1="12" y1="19" x2="12" y2="21"></line>
+        </svg>
+        <div class="scan-line"></div>
+      </div>
+
+      <h1>AI出退勤システム</h1>
+      <p>システムを起動します<br>カメラとマイクの使用を許可してください</p>
+      
+      <button id="systemStartBtn" class="btn-start">
+        <span>システム起動</span>
+      </button>
+    </div>
+  </div>
+  <!-- ▲▲▲ 追加終了 ▲▲▲ -->
+
   <div class="app-container">
     <header>
-      <h1>AI ATTENDANCE</h1>
-      <div id="loading" class="loading-badge">SYSTEM INIT...</div>
+      <h1>AI出退勤システム</h1>
+      <div id="loading" class="loading-badge">WAITING...</div>
     </header>
 
     <div id="mainContent" class="main-layout" style="display: none;">
       
-      <!-- 上部ツールバー：登録とCSV -->
+      <!-- ツールバー -->
       <section class="control-bar">
         <div class="input-group">
           <input type="text" id="userName" placeholder="名前を入力" />
@@ -30,34 +63,32 @@
       </section>
       <div id="registerMessage" class="message-overlay"></div>
 
-      <!-- メインエリア：カメラ＆ステータス -->
+      <!-- カメラエリア -->
       <section class="camera-section">
         <div class="video-wrapper">
           <div class="video-container">
             <video id="video" autoplay muted playsinline></video>
             <canvas id="overlay"></canvas>
             
-            <!-- コーナー装飾 -->
             <div class="corner-bracket top-left"></div>
             <div class="corner-bracket top-right"></div>
             <div class="corner-bracket bottom-left"></div>
             <div class="corner-bracket bottom-right"></div>
           </div>
           
-          <!-- ステータスオーバーレイ -->
           <div class="status-overlay">
             <div id="detectionStatus" class="status-chip">
               <span class="status-indicator"></span>
               <span id="statusText">SCANNING...</span>
             </div>
             <div id="voiceStatus" class="status-chip voice">
-              🎤 待機中
+              🎤 準備中
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 下部アクションエリア -->
+      <!-- アクションエリア -->
       <section class="action-bar">
         <div class="voice-hint">「出勤します」「退勤します」と話しかけてください</div>
         <div class="button-group">
@@ -72,7 +103,7 @@
     <footer><p>© 2026 CODIQ AI SYSTEMS</p></footer>
   </div>
 
-  <!-- 演出用要素 -->
+  <!-- 演出用 -->
   <div id="flashOverlay" class="flash-overlay"></div>
   <div id="successPopup" class="success-popup">
     <div class="popup-content">
