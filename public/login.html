@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ログイン - AI出退勤システム</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Noto Sans JP', sans-serif;
+      background: #0f172a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: #f1f5f9;
+    }
+    .login-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      padding: 40px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      width: 100%;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    h1 { margin-bottom: 30px; font-size: 1.5rem; letter-spacing: 0.05em; }
+    input {
+      width: 100%;
+      padding: 14px;
+      margin-bottom: 15px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 1rem;
+      box-sizing: border-box;
+    }
+    input:focus { outline: none; border-color: #3b82f6; }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.5); }
+    .error-msg { color: #ef4444; font-size: 0.9rem; margin-top: 15px; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <h1>システムログイン</h1>
+    <input type="text" id="username" placeholder="ログインID" value="admin">
+    <input type="password" id="password" placeholder="パスワード">
+    <button onclick="performLogin()">ログイン</button>
+    <div id="errorMsg" class="error-msg"></div>
+  </div>
+
+  <script>
+    async function performLogin() {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('errorMsg');
+      
+      if(!username || !password) return;
+
+      errorEl.textContent = "確認中...";
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          // ログイン成功！会社情報を保存してメイン画面へ
+          localStorage.setItem('attendance_company_id', data.companyId);
+          localStorage.setItem('attendance_company_name', data.companyName);
+          window.location.href = '/';
+        } else {
+          errorEl.textContent = data.error || 'ログインに失敗しました';
+        }
+      } catch (err) {
+        errorEl.textContent = 'サーバーエラーが発生しました';
+      }
+    }
+  </script>
+</body>
+</html>
