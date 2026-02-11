@@ -17,6 +17,7 @@
       display: flex; justify-content: space-between; align-items: center;
     }
     h1 { margin: 0; font-size: 1.2rem; }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
     .container {
       max-width: 800px; margin: 2rem auto; padding: 0 1rem;
     }
@@ -29,13 +30,14 @@
     
     /* ボタン */
     .btn {
-      padding: 0.75rem 1.5rem; border-radius: 8px; border: none;
+      padding: 0.5rem 1rem; border-radius: 6px; border: none;
       font-weight: bold; cursor: pointer; transition: 0.2s;
-      text-decoration: none; display: inline-block;
+      text-decoration: none; display: inline-block; font-size: 0.9rem;
     }
-    .btn-primary { background: #3b82f6; color: white; }
-    .btn-danger { background: #ef4444; color: white; font-size: 0.8rem; padding: 0.4rem 0.8rem; }
+    .btn-primary { background: #3b82f6; color: white; padding: 0.75rem 1.5rem; font-size: 1rem; }
+    .btn-danger { background: #ef4444; color: white; }
     .btn-back { background: #64748b; color: white; }
+    .btn-logout { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #cbd5e1; }
     .btn:hover { opacity: 0.9; transform: translateY(-1px); }
 
     /* リスト */
@@ -53,7 +55,10 @@
 
   <header>
     <h1>管理ダッシュボード</h1>
-    <a href="/" class="btn btn-back">📷 打刻画面へ戻る</a>
+    <div class="header-actions">
+      <a href="/" class="btn btn-back">📷 打刻画面へ</a>
+      <button onclick="logout()" class="btn btn-logout">ログアウト</button>
+    </div>
   </header>
 
   <div class="container">
@@ -76,12 +81,21 @@
   </div>
 
   <script>
-    const API_URL = ''; // 同じドメインなら空でOK
+    const API_URL = ''; 
     const COMPANY_ID = localStorage.getItem('attendance_company_id');
 
     // ログインチェック
     if (!COMPANY_ID) {
       window.location.href = '/login';
+    }
+
+    // ログアウト処理
+    function logout() {
+      if(confirm('ログアウトしますか？')) {
+        localStorage.removeItem('attendance_company_id');
+        localStorage.removeItem('attendance_company_name');
+        window.location.href = '/login';
+      }
     }
 
     // CSVダウンロード
@@ -123,12 +137,12 @@
         const res = await fetch(`/api/users/${userId}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ companyId: COMPANY_ID }) // セキュリティのため会社IDも送る
+          body: JSON.stringify({ companyId: COMPANY_ID })
         });
 
         if (res.ok) {
           alert('削除しました');
-          loadUsers(); // リスト再読み込み
+          loadUsers(); 
         } else {
           alert('削除に失敗しました');
         }

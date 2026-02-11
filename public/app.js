@@ -1,4 +1,4 @@
-// public/app.js (商用版v2: ログイン連携対応)
+// public/app.js (商用版v2: ログアウト対応)
 
 // --- グローバル変数 ---
 let video;
@@ -25,9 +25,9 @@ const API_URL = window.location.hostname === 'localhost'
 
 // ページ読み込み時にログインチェック
 if (!COMPANY_ID) {
-  window.location.href = '/login'; // 未ログインならログイン画面へ飛ばす
+  window.location.href = '/login'; 
 } else {
-  // 会社名をヘッダーに表示（もしあれば）
+  // 会社名をヘッダーに表示
   document.addEventListener('DOMContentLoaded', () => {
     const headerTitle = document.querySelector('header h1');
     if (headerTitle && COMPANY_NAME) {
@@ -84,7 +84,7 @@ async function init() {
     document.getElementById('mainContent').style.display = 'flex';
     
     await startVideo();
-    await loadUsers(); // ここで会社IDを使ってユーザーを取得
+    await loadUsers(); 
     await loadAttendanceRecords(); 
     
     setupEventListeners();
@@ -337,15 +337,22 @@ function setupEventListeners() {
   document.getElementById('registerBtn').addEventListener('click', registerUser);
   document.getElementById('clockInBtn').addEventListener('click', () => recordAttendance('clock-in'));
   document.getElementById('clockOutBtn').addEventListener('click', () => recordAttendance('clock-out'));
-  document.getElementById('downloadCsvBtn').addEventListener('click', downloadCsv);
   
-  // ログアウトボタン（簡易実装：ロゴクリックでログアウト）
-  document.querySelector('header h1').addEventListener('click', () => {
-    if(confirm('ログアウトしますか？')) {
-      localStorage.removeItem('attendance_company_id');
-      window.location.href = '/login';
-    }
-  });
+  // CSVダウンロードボタン（index.htmlには無いですが、admin.htmlから移植した場合に備えて）
+  const csvBtn = document.getElementById('downloadCsvBtn');
+  if(csvBtn) csvBtn.addEventListener('click', downloadCsv);
+  
+  // ログアウトボタン
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      if(confirm('ログアウトしますか？')) {
+        localStorage.removeItem('attendance_company_id');
+        localStorage.removeItem('attendance_company_name');
+        window.location.href = '/login';
+      }
+    });
+  }
 }
 
 // --- API (マルチテナント対応) ---
@@ -362,14 +369,13 @@ async function registerUser() {
   try {
     showMessage('registerMessage', '登録中...', 'success');
     
-    // ★ 会社IDを一緒に送る
     const res = await fetch(`${API_URL}/api/register-user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         name, 
         faceDescriptor: Array.from(currentFaceDescriptor),
-        companyId: COMPANY_ID // 追加
+        companyId: COMPANY_ID 
       })
     });
     
@@ -394,7 +400,6 @@ async function recordAttendance(type) {
     showSuccessPopup(type, currentMatchedUser.name);
     speakGreeting(type, currentMatchedUser.name);
 
-    // ★ 会社IDはサーバー側でユーザーIDから特定できるので送信不要
     const res = await fetch(`${API_URL}/api/attendance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -415,13 +420,11 @@ async function recordAttendance(type) {
 }
 
 function downloadCsv() {
-  // ★ 会社IDをクエリパラメータで送る
   window.location.href = `${API_URL}/api/download-csv?companyId=${COMPANY_ID}`;
 }
 
 async function loadUsers() {
   try {
-    // ★ 会社IDを指定してユーザーを取得
     const res = await fetch(`${API_URL}/api/face-descriptors?companyId=${COMPANY_ID}`);
     const data = await res.json();
     registeredUsers = data.map(d => ({ ...d, descriptor: new Float32Array(d.descriptor) }));
@@ -430,7 +433,6 @@ async function loadUsers() {
 
 async function loadAttendanceRecords() {
   try {
-    // ★ 会社IDを指定して履歴を取得
     await fetch(`${API_URL}/api/attendance?companyId=${COMPANY_ID}`);
   } catch(e) { console.error(e); }
 }
