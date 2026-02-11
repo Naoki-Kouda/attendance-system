@@ -65,6 +65,52 @@ app.post('/api/login', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// API: 従業員一覧取得 (管理画面用)
+// ----------------------------------------------------
+app.get('/api/users', async (req, res) => {
+  const companyId = req.query.companyId;
+  if (!companyId) return res.status(400).json({ error: '会社IDが必要です' });
+
+  try {
+    const query = 'SELECT id, name, created_at FROM users WHERE company_id = $1 ORDER BY id ASC';
+    const result = await client.query(query, [companyId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DBエラー' });
+  }
+});
+
+// ----------------------------------------------------
+// API: 従業員削除 (管理画面用)
+// ----------------------------------------------------
+app.delete('/api/users/:id', async (req, res) => {
+  const userId = req.params.id;
+  const { companyId } = req.body; // 安全のため会社IDもチェック
+
+  try {
+    // まず打刻履歴を削除（外部キー制約のため）
+    await client.query('DELETE FROM attendance_records WHERE user_id = $1', [userId]);
+    
+    // ユーザーを削除 (自社のユーザーだけ消せるようにcompany_idで絞る)
+    const result = await client.query(
+      'DELETE FROM users WHERE id = $1 AND company_id = $2',
+      [userId, companyId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '削除エラー' });
+  }
+});
+
+
+// ----------------------------------------------------
 // API: ユーザー登録 (マルチテナント対応)
 // ----------------------------------------------------
 app.post('/api/register-user', async (req, res) => {
