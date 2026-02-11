@@ -1,4 +1,6 @@
-// グローバル変数
+// public/app.js (商用版v2: ログイン連携対応)
+
+// --- グローバル変数 ---
 let video;
 let canvas;
 let displaySize;
@@ -9,13 +11,30 @@ let registeredUsers = [];
 let recognition = null; 
 let lastVoiceCommandTime = 0; 
 
+// ログイン情報（localStorageから取得）
+const COMPANY_ID = localStorage.getItem('attendance_company_id');
+const COMPANY_NAME = localStorage.getItem('attendance_company_name');
+
 const API_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:3000' 
   : window.location.origin;
 
 // ---------------------------------------------------------
-// ▼▼▼ システム起動ロジック ▼▼▼
+// ▼▼▼ ログインチェックと起動 ▼▼▼
 // ---------------------------------------------------------
+
+// ページ読み込み時にログインチェック
+if (!COMPANY_ID) {
+  window.location.href = '/login'; // 未ログインならログイン画面へ飛ばす
+} else {
+  // 会社名をヘッダーに表示（もしあれば）
+  document.addEventListener('DOMContentLoaded', () => {
+    const headerTitle = document.querySelector('header h1');
+    if (headerTitle && COMPANY_NAME) {
+      headerTitle.textContent += ` - ${COMPANY_NAME}`;
+    }
+  });
+}
 
 async function startSystem() {
   const startScreen = document.getElementById('startScreen');
@@ -29,7 +48,6 @@ async function startSystem() {
 
     await init();
 
-    // フェードアウト
     if (startScreen) {
       startScreen.classList.add('hidden');
     }
@@ -50,14 +68,12 @@ async function startSystem() {
 
 async function init() {
   try {
-    // モデル読み込み
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
       faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
       faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model'),
     ]);
 
-    // ヘッダーのステータス更新
     const loadingEl = document.getElementById('loading');
     if (loadingEl) {
       loadingEl.textContent = "ONLINE";
@@ -65,16 +81,13 @@ async function init() {
       loadingEl.style.color = "#fff";
     }
     
-    // メイン画面表示
     document.getElementById('mainContent').style.display = 'flex';
     
     await startVideo();
-    await loadUsers();
+    await loadUsers(); // ここで会社IDを使ってユーザーを取得
     await loadAttendanceRecords(); 
     
     setupEventListeners();
-    
-    // 音声認識開始（ユーザー操作直後なので許可されやすい）
     initVoiceRecognition();
     
   } catch (error) {
@@ -116,7 +129,7 @@ function showSuccessPopup(type, userName) {
 
   const now = new Date();
   msg.textContent = `${userName} さん`;
-  time.textContent = now.toLocaleTimeString('ja-JP').slice(0, -3); // 秒をカット
+  time.textContent = now.toLocaleTimeString('ja-JP').slice(0, -3);
 
   popup.classList.remove('popup-type-in', 'popup-type-out');
   if (type === 'clock-in') {
@@ -193,7 +206,7 @@ function showVoiceFeedback(msg) {
   if (!el) return;
   const original = el.innerHTML;
   el.innerHTML = `🔊 ${msg}`;
-  el.style.backgroundColor = 'rgba(16, 185, 129, 0.8)'; // Green
+  el.style.backgroundColor = 'rgba(16, 185, 129, 0.8)';
   setTimeout(() => {
     el.innerHTML = '🎤 待機中...';
     el.style.backgroundColor = 'rgba(15, 23, 42, 0.7)';
@@ -235,7 +248,6 @@ async function detectFaces() {
     .withFaceLandmarks()
     .withFaceDescriptor();
   
-  // レスポンシブ対応
   const container = document.querySelector('.video-container');
   if (container && (container.clientWidth !== displaySize.width || container.clientHeight !== displaySize.height)) {
     displaySize = { width: container.clientWidth, height: container.clientHeight };
@@ -326,9 +338,17 @@ function setupEventListeners() {
   document.getElementById('clockInBtn').addEventListener('click', () => recordAttendance('clock-in'));
   document.getElementById('clockOutBtn').addEventListener('click', () => recordAttendance('clock-out'));
   document.getElementById('downloadCsvBtn').addEventListener('click', downloadCsv);
+  
+  // ログアウトボタン（簡易実装：ロゴクリックでログアウト）
+  document.querySelector('header h1').addEventListener('click', () => {
+    if(confirm('ログアウトしますか？')) {
+      localStorage.removeItem('attendance_company_id');
+      window.location.href = '/login';
+    }
+  });
 }
 
-// --- API ---
+// --- API (マルチテナント対応) ---
 
 async function registerUser() {
   const nameInput = document.getElementById('userName');
@@ -341,10 +361,16 @@ async function registerUser() {
   
   try {
     showMessage('registerMessage', '登録中...', 'success');
+    
+    // ★ 会社IDを一緒に送る
     const res = await fetch(`${API_URL}/api/register-user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, faceDescriptor: Array.from(currentFaceDescriptor) })
+      body: JSON.stringify({ 
+        name, 
+        faceDescriptor: Array.from(currentFaceDescriptor),
+        companyId: COMPANY_ID // 追加
+      })
     });
     
     if ((await res.json()).success) {
@@ -368,15 +394,13 @@ async function recordAttendance(type) {
     showSuccessPopup(type, currentMatchedUser.name);
     speakGreeting(type, currentMatchedUser.name);
 
-    const faceImage = await captureFaceImage();
+    // ★ 会社IDはサーバー側でユーザーIDから特定できるので送信不要
     const res = await fetch(`${API_URL}/api/attendance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: currentMatchedUser.id,
-        userName: currentMatchedUser.name,
-        type,
-        faceImage
+        type
       })
     });
     
@@ -391,20 +415,14 @@ async function recordAttendance(type) {
 }
 
 function downloadCsv() {
-  window.location.href = `${API_URL}/api/download-csv`;
-}
-
-async function captureFaceImage() {
-  const c = document.createElement('canvas');
-  c.width = video.videoWidth;
-  c.height = video.videoHeight;
-  c.getContext('2d').drawImage(video, 0, 0);
-  return c.toDataURL('image/jpeg', 0.7);
+  // ★ 会社IDをクエリパラメータで送る
+  window.location.href = `${API_URL}/api/download-csv?companyId=${COMPANY_ID}`;
 }
 
 async function loadUsers() {
   try {
-    const res = await fetch(`${API_URL}/api/face-descriptors`);
+    // ★ 会社IDを指定してユーザーを取得
+    const res = await fetch(`${API_URL}/api/face-descriptors?companyId=${COMPANY_ID}`);
     const data = await res.json();
     registeredUsers = data.map(d => ({ ...d, descriptor: new Float32Array(d.descriptor) }));
   } catch(e) { console.error(e); }
@@ -412,7 +430,8 @@ async function loadUsers() {
 
 async function loadAttendanceRecords() {
   try {
-    await fetch(`${API_URL}/api/attendance`);
+    // ★ 会社IDを指定して履歴を取得
+    await fetch(`${API_URL}/api/attendance?companyId=${COMPANY_ID}`);
   } catch(e) { console.error(e); }
 }
 
