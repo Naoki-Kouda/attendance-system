@@ -1,8 +1,8 @@
-// server.js (商用版v2: マルチテナント・ログイン対応)
+// server.js (商用版v3: パスワード変更対応)
 const express = require('express');
 const cors = require('cors');
 const { Client } = require('pg');
-const bcrypt = require('bcrypt'); // 追加：パスワード照合用
+const bcrypt = require('bcrypt');
 const path = require('path');
 
 const app = express();
@@ -22,16 +22,25 @@ client.connect()
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// 静的ファイルの提供順序を調整
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 app.use(express.static('public'));
 
 // ----------------------------------------------------
-// API: ログイン (新規追加)
+// API: ログイン
 // ----------------------------------------------------
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // 1. IDで検索
     const query = 'SELECT * FROM admins WHERE username = $1';
     const result = await client.query(query, [username]);
 
@@ -40,22 +49,19 @@ app.post('/api/login', async (req, res) => {
     }
 
     const admin = result.rows[0];
-
-    // 2. パスワード照合
     const match = await bcrypt.compare(password, admin.password_hash);
     if (!match) {
       return res.status(401).json({ error: 'IDまたはパスワードが違います' });
     }
 
-    // 3. 会社情報を取得して返す
     const companyRes = await client.query('SELECT name FROM companies WHERE id = $1', [admin.company_id]);
     const companyName = companyRes.rows[0].name;
 
-    // 成功！会社IDと名前を返す
     res.json({ 
       success: true, 
       companyId: admin.company_id,
-      companyName: companyName
+      companyName: companyName,
+      username: admin.username // フロントエンドで使うために返す
     });
 
   } catch (err) {
@@ -65,56 +71,9 @@ app.post('/api/login', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// API: 従業員一覧取得 (管理画面用)
-// ----------------------------------------------------
-app.get('/api/users', async (req, res) => {
-  const companyId = req.query.companyId;
-  if (!companyId) return res.status(400).json({ error: '会社IDが必要です' });
-
-  try {
-    const query = 'SELECT id, name, created_at FROM users WHERE company_id = $1 ORDER BY id ASC';
-    const result = await client.query(query, [companyId]);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'DBエラー' });
-  }
-});
-
-// ----------------------------------------------------
-// API: 従業員削除 (管理画面用)
-// ----------------------------------------------------
-app.delete('/api/users/:id', async (req, res) => {
-  const userId = req.params.id;
-  const { companyId } = req.body; // 安全のため会社IDもチェック
-
-  try {
-    // まず打刻履歴を削除（外部キー制約のため）
-    await client.query('DELETE FROM attendance_records WHERE user_id = $1', [userId]);
-    
-    // ユーザーを削除 (自社のユーザーだけ消せるようにcompany_idで絞る)
-    const result = await client.query(
-      'DELETE FROM users WHERE id = $1 AND company_id = $2',
-      [userId, companyId]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'ユーザーが見つかりません' });
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: '削除エラー' });
-  }
-});
-
-
-// ----------------------------------------------------
-// API: ユーザー登録 (マルチテナント対応)
+// API: ユーザー登録
 // ----------------------------------------------------
 app.post('/api/register-user', async (req, res) => {
-  // companyIdを受け取るように変更
   const { name, faceDescriptor, companyId } = req.body;
   
   if (!name || !faceDescriptor || !companyId) {
@@ -123,16 +82,13 @@ app.post('/api/register-user', async (req, res) => {
 
   try {
     const descriptorStr = JSON.stringify(faceDescriptor);
-    
     const query = `
       INSERT INTO users (company_id, name, face_descriptor)
       VALUES ($1, $2, $3)
       RETURNING id
     `;
-    
     const result = await client.query(query, [companyId, name, descriptorStr]);
     console.log(`[DB保存] 新規ユーザー登録: ${name} (Company: ${companyId})`);
-    
     res.json({ success: true, userId: result.rows[0].id });
   } catch (err) {
     console.error('Registration Error:', err);
@@ -141,24 +97,20 @@ app.post('/api/register-user', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// API: 顔データ取得 (マルチテナント対応)
+// API: 顔データ取得
 // ----------------------------------------------------
 app.get('/api/face-descriptors', async (req, res) => {
-  const companyId = req.query.companyId; // URLパラメータから取得
-
+  const companyId = req.query.companyId;
   if (!companyId) return res.status(400).json({ error: '会社IDが必要です' });
 
   try {
-    // 指定された会社の社員だけを取得
     const query = 'SELECT id, name, face_descriptor FROM users WHERE company_id = $1';
     const result = await client.query(query, [companyId]);
-
     const users = result.rows.map(row => ({
       id: row.id.toString(),
       name: row.name,
       descriptor: JSON.parse(row.face_descriptor)
     }));
-
     res.json(users);
   } catch (err) {
     console.error('Fetch Users Error:', err);
@@ -167,7 +119,7 @@ app.get('/api/face-descriptors', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// API: 打刻記録 (変更なし)
+// API: 打刻記録
 // ----------------------------------------------------
 app.post('/api/attendance', async (req, res) => {
   const { userId, type } = req.body;
@@ -182,7 +134,7 @@ app.post('/api/attendance', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// API: 履歴取得 (マルチテナント対応)
+// API: 履歴取得
 // ----------------------------------------------------
 app.get('/api/attendance', async (req, res) => {
   const companyId = req.query.companyId;
@@ -198,7 +150,6 @@ app.get('/api/attendance', async (req, res) => {
       LIMIT 50
     `;
     const result = await client.query(query, [companyId]);
-    
     const records = result.rows.map(row => ({
       id: row.id.toString(),
       userId: row.user_id.toString(),
@@ -206,7 +157,6 @@ app.get('/api/attendance', async (req, res) => {
       type: row.type,
       timestamp: row.timestamp
     }));
-
     res.json(records);
   } catch (err) {
     console.error('History Error:', err);
@@ -215,7 +165,7 @@ app.get('/api/attendance', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// API: CSVダウンロード (マルチテナント対応)
+// API: CSVダウンロード
 // ----------------------------------------------------
 app.get('/api/download-csv', async (req, res) => {
   const companyId = req.query.companyId;
@@ -267,13 +217,84 @@ app.get('/api/download-csv', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// ----------------------------------------------------
+// API: 従業員一覧取得 (管理画面用)
+// ----------------------------------------------------
+app.get('/api/users', async (req, res) => {
+  const companyId = req.query.companyId;
+  if (!companyId) return res.status(400).json({ error: '会社IDが必要です' });
+
+  try {
+    const query = 'SELECT id, name, created_at FROM users WHERE company_id = $1 ORDER BY id ASC';
+    const result = await client.query(query, [companyId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DBエラー' });
+  }
 });
 
-// ログイン画面へのルート
-app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+// ----------------------------------------------------
+// API: 従業員削除 (管理画面用)
+// ----------------------------------------------------
+app.delete('/api/users/:id', async (req, res) => {
+  const userId = req.params.id;
+  const { companyId } = req.body; 
+
+  try {
+    await client.query('DELETE FROM attendance_records WHERE user_id = $1', [userId]);
+    const result = await client.query(
+      'DELETE FROM users WHERE id = $1 AND company_id = $2',
+      [userId, companyId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '削除エラー' });
+  }
+});
+
+// ----------------------------------------------------
+// API: パスワード変更 (新規追加)
+// ----------------------------------------------------
+app.post('/api/change-password', async (req, res) => {
+  const { username, currentPassword, newPassword } = req.body;
+
+  if (!username || !currentPassword || !newPassword) {
+    return res.status(400).json({ error: '入力内容が不足しています' });
+  }
+
+  try {
+    const query = 'SELECT * FROM admins WHERE username = $1';
+    const result = await client.query(query, [username]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+
+    const admin = result.rows[0];
+    const match = await bcrypt.compare(currentPassword, admin.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: '現在のパスワードが間違っています' });
+    }
+
+    const newHashedPassword = await bcrypt.hash(newPassword, 10);
+    await client.query('UPDATE admins SET password_hash = $1 WHERE username = $2', [newHashedPassword, username]);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error('Password Change Error:', err);
+    res.status(500).json({ error: 'エラーが発生しました' });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {

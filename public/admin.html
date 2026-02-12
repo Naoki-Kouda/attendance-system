@@ -28,7 +28,6 @@
     }
     h2 { margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; }
     
-    /* ボタン */
     .btn {
       padding: 0.5rem 1rem; border-radius: 6px; border: none;
       font-weight: bold; cursor: pointer; transition: 0.2s;
@@ -40,7 +39,6 @@
     .btn-logout { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #cbd5e1; }
     .btn:hover { opacity: 0.9; transform: translateY(-1px); }
 
-    /* リスト */
     .user-list { list-style: none; padding: 0; }
     .user-item {
       display: flex; justify-content: space-between; align-items: center;
@@ -78,6 +76,16 @@
       </div>
     </div>
 
+    <!-- パスワード変更 -->
+    <div class="card" style="border-top: 4px solid #f59e0b;">
+      <h2>🔒 パスワード変更</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px; max-width: 400px;">
+        <input type="password" id="currentPass" placeholder="現在のパスワード" style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+        <input type="password" id="newPass" placeholder="新しいパスワード" style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+        <button onclick="changePassword()" class="btn" style="background: #f59e0b; color: white;">変更する</button>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -89,7 +97,6 @@
       window.location.href = '/login';
     }
 
-    // ログアウト処理
     function logout() {
       if(confirm('ログアウトしますか？')) {
         localStorage.removeItem('attendance_company_id');
@@ -98,12 +105,10 @@
       }
     }
 
-    // CSVダウンロード
     function downloadCsv() {
       window.location.href = `/api/download-csv?companyId=${COMPANY_ID}`;
     }
 
-    // 従業員リスト取得
     async function loadUsers() {
       const listEl = document.getElementById('userList');
       try {
@@ -129,7 +134,6 @@
       }
     }
 
-    // 従業員削除
     async function deleteUser(userId, userName) {
       if (!confirm(`${userName} さんのデータを削除しますか？\n（※この操作は元に戻せません）`)) return;
 
@@ -148,6 +152,39 @@
         }
       } catch (err) {
         alert('エラーが発生しました');
+      }
+    }
+
+    // パスワード変更
+    async function changePassword() {
+      const currentPass = document.getElementById('currentPass').value;
+      const newPass = document.getElementById('newPass').value;
+      const username = 'admin'; // 初期管理者
+
+      if (!currentPass || !newPass) {
+        alert('パスワードを入力してください');
+        return;
+      }
+
+      if (confirm('パスワードを変更しますか？')) {
+        try {
+          const res = await fetch('/api/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, currentPassword: currentPass, newPassword: newPass })
+          });
+
+          const data = await res.json();
+
+          if (data.success) {
+            alert('変更しました！\n新しいパスワードでログインし直してください。');
+            logout(); 
+          } else {
+            alert(data.error || '変更に失敗しました');
+          }
+        } catch (err) {
+          alert('通信エラーが発生しました');
+        }
       }
     }
 
