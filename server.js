@@ -297,6 +297,28 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ----------------------------------------------------
+// API: 会社名変更 (管理画面用)
+// ----------------------------------------------------
+app.post('/api/update-company-name', async (req, res) => {
+  const { companyId, newName } = req.body;
+
+  if (!companyId || !newName) {
+    return res.status(400).json({ error: '入力内容が不足しています' });
+  }
+
+  try {
+    const query = 'UPDATE companies SET name = $1 WHERE id = $2';
+    await client.query(query, [newName, companyId]);
+    
+    console.log(`[DB更新] 会社名変更: ID ${companyId} -> ${newName}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Update Company Name Error:', err);
+    res.status(500).json({ error: '変更に失敗しました' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

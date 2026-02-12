@@ -35,6 +35,7 @@
     }
     .btn-primary { background: #3b82f6; color: white; padding: 0.75rem 1.5rem; font-size: 1rem; }
     .btn-danger { background: #ef4444; color: white; }
+    .btn-warning { background: #f59e0b; color: white; }
     .btn-back { background: #64748b; color: white; }
     .btn-logout { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #cbd5e1; }
     .btn:hover { opacity: 0.9; transform: translateY(-1px); }
@@ -47,12 +48,15 @@
     .user-item:last-child { border-bottom: none; }
     
     .loading { text-align: center; color: #94a3b8; margin: 2rem 0; }
+    input[type="text"], input[type="password"] {
+      padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; box-sizing: border-box; margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
 
   <header>
-    <h1>管理ダッシュボード</h1>
+    <h1 id="headerTitle">管理ダッシュボード</h1>
     <div class="header-actions">
       <a href="/" class="btn btn-back">📷 打刻画面へ</a>
       <button onclick="logout()" class="btn btn-logout">ログアウト</button>
@@ -61,6 +65,16 @@
 
   <div class="container">
     
+    <!-- 会社名変更 -->
+    <div class="card">
+      <h2>🏢 会社設定</h2>
+      <p>システムに表示される会社名を変更できます。</p>
+      <div style="display: flex; gap: 10px;">
+        <input type="text" id="companyNameInput" placeholder="新しい会社名">
+        <button onclick="updateCompanyName()" class="btn btn-primary" style="white-space: nowrap;">変更</button>
+      </div>
+    </div>
+
     <!-- CSVダウンロード -->
     <div class="card">
       <h2>📊 勤怠データ出力</h2>
@@ -80,9 +94,9 @@
     <div class="card" style="border-top: 4px solid #f59e0b;">
       <h2>🔒 パスワード変更</h2>
       <div style="display: flex; flex-direction: column; gap: 10px; max-width: 400px;">
-        <input type="password" id="currentPass" placeholder="現在のパスワード" style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
-        <input type="password" id="newPass" placeholder="新しいパスワード" style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
-        <button onclick="changePassword()" class="btn" style="background: #f59e0b; color: white;">変更する</button>
+        <input type="password" id="currentPass" placeholder="現在のパスワード">
+        <input type="password" id="newPass" placeholder="新しいパスワード">
+        <button onclick="changePassword()" class="btn btn-warning">変更する</button>
       </div>
     </div>
 
@@ -91,10 +105,18 @@
   <script>
     const API_URL = ''; 
     const COMPANY_ID = localStorage.getItem('attendance_company_id');
+    const COMPANY_NAME = localStorage.getItem('attendance_company_name');
 
-    // ログインチェック
+    // ログインチェック & ヘッダー表示
     if (!COMPANY_ID) {
       window.location.href = '/login';
+    } else {
+      // ヘッダーに会社名を表示
+      const headerH1 = document.getElementById('headerTitle');
+      if(COMPANY_NAME) {
+        headerH1.textContent += ` - ${COMPANY_NAME}`;
+        document.getElementById('companyNameInput').value = COMPANY_NAME;
+      }
     }
 
     function logout() {
@@ -103,6 +125,28 @@
         localStorage.removeItem('attendance_company_name');
         window.location.href = '/login';
       }
+    }
+
+    // 会社名変更
+    async function updateCompanyName() {
+      const newName = document.getElementById('companyNameInput').value;
+      if(!newName) return alert('会社名を入力してください');
+
+      try {
+        const res = await fetch('/api/update-company-name', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyId: COMPANY_ID, newName: newName })
+        });
+
+        if((await res.json()).success) {
+          alert('会社名を変更しました');
+          localStorage.setItem('attendance_company_name', newName);
+          location.reload(); // 画面更新
+        } else {
+          alert('変更に失敗しました');
+        }
+      } catch(e) { alert('エラーが発生しました'); }
     }
 
     function downloadCsv() {
@@ -159,7 +203,8 @@
     async function changePassword() {
       const currentPass = document.getElementById('currentPass').value;
       const newPass = document.getElementById('newPass').value;
-      const username = 'admin'; // 初期管理者
+      // 注意: 本来はログイン時に取得したユーザー名を使うべきですが、今回は初期admin想定
+      const username = 'admin'; 
 
       if (!currentPass || !newPass) {
         alert('パスワードを入力してください');
