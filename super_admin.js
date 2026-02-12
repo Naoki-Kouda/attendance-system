@@ -32,6 +32,8 @@ async function main() {
       console.log('2. 新しい会社を追加');
       console.log('3. 会社の社員を確認');
       console.log('4. 会社を削除 (危険)');
+      console.log('5. 管理者パスワードをリセット');
+      console.log('6. 管理者ID(ユーザー名)を変更'); // 追加
       console.log('9. 終了');
       console.log('-----------------------------------');
 
@@ -45,6 +47,10 @@ async function main() {
         await listEmployees();
       } else if (choice === '4') {
         await deleteCompany();
+      } else if (choice === '5') {
+        await resetPassword();
+      } else if (choice === '6') {
+        await changeAdminId();
       } else if (choice === '9') {
         break;
       } else {
@@ -122,6 +128,63 @@ async function deleteCompany() {
     }
   } else {
     console.log('キャンセルしました');
+  }
+}
+
+// 5. パスワードリセット
+async function resetPassword() {
+  await listCompanies();
+  const companyId = await ask('対象の会社IDを入力: ');
+  
+  const adminRes = await client.query('SELECT * FROM admins WHERE company_id = $1', [companyId]);
+  
+  if (adminRes.rows.length === 0) {
+    console.log('[エラー] その会社の管理者が見つかりません。');
+    return;
+  }
+
+  const targetAdmin = adminRes.rows[0];
+  console.log(`\n対象管理者: ${targetAdmin.username} (CompanyID: ${companyId})`);
+  
+  const newPass = await ask('新しいパスワードを入力: ');
+  if (!newPass) return console.log('キャンセルしました');
+
+  try {
+    const hash = await bcrypt.hash(newPass, 10);
+    await client.query('UPDATE admins SET password_hash = $1 WHERE id = $2', [hash, targetAdmin.id]);
+    console.log(`[成功] パスワードを変更しました。新しいパスワード: ${newPass}`);
+  } catch (e) {
+    console.log('[失敗] エラー:', e.message);
+  }
+}
+
+// 6. 管理者ID変更 (追加)
+async function changeAdminId() {
+  await listCompanies();
+  const companyId = await ask('対象の会社IDを入力: ');
+  
+  const adminRes = await client.query('SELECT * FROM admins WHERE company_id = $1', [companyId]);
+  
+  if (adminRes.rows.length === 0) {
+    console.log('[エラー] その会社の管理者が見つかりません。');
+    return;
+  }
+
+  const targetAdmin = adminRes.rows[0];
+  console.log(`\n現在のログインID: ${targetAdmin.username}`);
+  
+  const newId = await ask('新しいログインIDを入力: ');
+  if (!newId) return console.log('キャンセルしました');
+
+  try {
+    await client.query('UPDATE admins SET username = $1 WHERE id = $2', [newId, targetAdmin.id]);
+    console.log(`[成功] ログインIDを変更しました: ${targetAdmin.username} -> ${newId}`);
+  } catch (e) {
+    if (e.code === '23505') {
+      console.log('[失敗] そのIDは既に使用されています。別のIDにしてください。');
+    } else {
+      console.log('[失敗] エラー:', e.message);
+    }
   }
 }
 

@@ -51,6 +51,46 @@
     input[type="text"], input[type="password"] {
       padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; box-sizing: border-box; margin-bottom: 10px;
     }
+
+    /* ▼▼▼ スマホ用レイアウト調整 (追加) ▼▼▼ */
+    @media (max-width: 600px) {
+      header {
+        flex-direction: column; /* 縦並びにする */
+        align-items: flex-start; /* 左寄せ */
+        gap: 10px; /* 上下の間隔 */
+        padding: 1rem; /* 余白を少し狭く */
+      }
+
+      header h1 {
+        font-size: 1rem; /* 会社名を少し小さく */
+        width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis; /* 長すぎる場合は...にする */
+      }
+
+      /* ボタンエリア（管理画面用クラス） */
+      .header-actions {
+        width: 100%;
+        display: flex;
+        justify-content: flex-end; /* 右寄せ */
+        gap: 10px;
+      }
+
+      /* 打刻画面のヘッダー右側div用 */
+      header > div {
+        width: 100%;
+        justify-content: flex-end; /* 右寄せ */
+      }
+
+      /* ボタンの文字サイズ調整 */
+      .btn, button, a {
+        font-size: 0.85rem !important;
+        padding: 6px 12px !important;
+      }
+    }
+
+
   </style>
 </head>
 <body>
